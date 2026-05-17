@@ -130,7 +130,8 @@ export function Revenue() {
     setPackageBreakdown(breakdown)
 
     // Calculate KPIs
-    const previousMonth = monthlyData[monthlyData.length - 2] || {}
+    const currentMonth = monthlyData[monthlyData.length - 1] || { mrr: 0, customers: 0 }
+    const previousMonth = monthlyData[monthlyData.length - 2] || { mrr: 0, customers: 0 }
     const growth = calculateGrowthPercentage(currentMonth.mrr, previousMonth.mrr)
     const arpu = currentMonth.customers > 0 ? currentMonth.mrr / currentMonth.customers : 0
     const avgChurnRate = 0.05 // 5% assumed
