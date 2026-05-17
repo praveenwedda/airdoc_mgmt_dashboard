@@ -1,0 +1,41 @@
+{
+  "name": "airdoc-dashboard",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/praveenwedda/airdoc_mgmt_dashboard.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/praveenwedda/airdoc_mgmt_dashboard/issues"
+  },
+  "homepage": "https://praveenwedda.github.io/airdoc_mgmt_dashboard/",
+  "description": "AirDoc Operations & Investor Dashboard",
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.0.2",
+    "firebase": "^12.13.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.15.1",
+    "recharts": "^3.8.1",
+    "vite": "^8.0.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/forms": "^0.5.11",
+    "@tailwindcss/postcss": "^4.3.0",
+    "autoprefixer": "^10.5.0",
+    "gh-pages": "^6.3.0",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^4.3.0"
+  }
+}

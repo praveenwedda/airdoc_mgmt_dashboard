@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/* Custom theme configuration for Tailwind v4 */
+@theme {
+  --color-apple-bg: #F5F5F7;
+  --color-apple-white: #FFFFFF;
+  --color-apple-border: #D2D2D7;
+  --color-apple-border-light: #E5E5EA;
+  --color-apple-blue: #0071E3;
+  --color-apple-blue-hover: #0077ED;
+  --color-apple-red: #FF3B30;
+  --color-apple-green: #34C759;
+  --color-apple-text-secondary: #6E6E73;
+  --color-apple-active-bg: #EBF4FF;
+
+  --radius-apple: 18px;
+  --radius-apple-sm: 12px;
+  --radius-apple-pill: 980px;
+
+  --shadow-apple: 0 2px 12px rgba(0,0,0,0.08);
+  --shadow-apple-hover: 0 4px 16px rgba(0,0,0,0.12);
+
+  --font-family-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Apple-style base styles */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: #F5F5F7;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D2D2D7;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6E6E73;
+}
+
+/* Loading skeleton animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #E5E5EA 25%, #F5F5F7 50%, #E5E5EA 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Focus ring style */
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.3);
+}
+
+/* Apple-style inputs */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #0071E3;
+  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.15);
+}
+
+/* Card hover effect */
+.card-hover {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.card-hover:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  transform: translateY(-1px);
+}
+
+/* Letter spacing for headings */
+.tracking-heading {
+  letter-spacing: -0.02em;
+}

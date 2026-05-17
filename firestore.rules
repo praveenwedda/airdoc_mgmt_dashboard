@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+
+    function isManager() {
+      return isAuthenticated() && (getUserRole() == 'admin' || getUserRole() == 'manager');
+    }
+
+    function isViewer() {
+      return isAuthenticated() && getUserRole() == 'viewer';
+    }
+
+    // Config collection - managers can read, admins can write
+    match /config/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isManager();
+    }
+
+    // Users collection - admins only for write, users can read their own profile
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Acquisitions - viewers can read, managers can write
+    match /acquisitions/{document=**} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isManager();
+    }
+
+    // Churn - viewers can read, managers can write
+    match /churn/{document=**} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isManager();
+    }
+
+    // Meetings - viewers can read, managers can write
+    match /meetings/{document=**} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isManager();
+    }
+
+    // Campaigns - viewers can read, managers can write
+    match /campaigns/{document=**} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isManager();
+    }
+
+    // Social campaigns - viewers can read, managers can write
+    match /social_campaigns/{document=**} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isManager();
+    }
+
+    // Costs - viewers can read, managers can write
+    match /costs/{document=**} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isManager();
+    }
+
+    // Social tokens - admin only (sensitive)
+    match /social_tokens/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
