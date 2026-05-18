@@ -10,6 +10,7 @@ import { Overview } from './pages/dashboard/Overview'
 import { Revenue } from './pages/dashboard/Revenue'
 import { Customers } from './pages/dashboard/Customers'
 import { MarketingSummary } from './pages/dashboard/Marketing'
+import { CostAnalysis } from './pages/dashboard/Costs'
 
 // Admin Pages
 import { Configuration } from './pages/admin/Configuration'
@@ -118,6 +119,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <MarketingSummary />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/costs"
+        element={
+          <ProtectedRoute>
+            <CostAnalysis />
           </ProtectedRoute>
         }
       />

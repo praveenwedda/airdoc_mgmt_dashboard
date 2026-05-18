@@ -7,14 +7,23 @@ import { CustomerGrowthChart, AcquisitionChurnChart } from '../../components/cha
 import { SourceDonutChart } from '../../components/charts/DonutChart'
 import { useCollection, useDocument } from '../../hooks/useFirestore'
 import { formatCurrency, formatPercentage, formatNumber } from '../../utils/formatters'
-import { calculateGrowthPercentage, getLastNMonths, aggregateBySource } from '../../utils/calculations'
+import {
+  calculateGrowthPercentage,
+  getLastNMonths,
+  aggregateBySource,
+  buildMonthlyCostSeries,
+} from '../../utils/calculations'
 
 export function Overview() {
   const { document: config, loading: configLoading } = useDocument('config', 'app')
   const { documents: acquisitions, loading: acqLoading } = useCollection('acquisitions')
   const { documents: churnRecords, loading: churnLoading } = useCollection('churn')
+  const { documents: costs, loading: costsLoading } = useCollection('costs')
+  const { documents: campaigns, loading: campaignsLoading } = useCollection('campaigns')
+  const { documents: socialCampaigns, loading: socialLoading } = useCollection('social_campaigns')
 
-  const loading = configLoading || acqLoading || churnLoading
+  const loading =
+    configLoading || acqLoading || churnLoading || costsLoading || campaignsLoading || socialLoading
 
   // Calculate KPIs
   const [kpis, setKpis] = useState({
@@ -24,6 +33,9 @@ export function Overview() {
     ytdRevenue: 0,
     churnRate: 0,
     newCustomersThisMonth: 0,
+    monthlyCosts: 0,
+    ytdCosts: 0,
+    grossMargin: 0,
   })
 
   const [chartData, setChartData] = useState({
@@ -114,6 +126,14 @@ export function Overview() {
     // MRR growth
     const mrrGrowth = calculateGrowthPercentage(currentMonth.mrr, previousMonth.mrr)
 
+    // Cost roll-up across the same window
+    const costSeries = buildMonthlyCostSeries(months, costs, campaigns, socialCampaigns)
+    const currentMonthCosts = costSeries[costSeries.length - 1]?.total || 0
+    const ytdCosts = costSeries.reduce((sum, m) => sum + (m.total || 0), 0)
+    const grossMargin = currentMonth.mrr > 0
+      ? ((currentMonth.mrr - currentMonthCosts) / currentMonth.mrr) * 100
+      : 0
+
     setKpis({
       totalCustomers: currentMonth.customers || 0,
       mrr: currentMonth.mrr || 0,
@@ -121,6 +141,9 @@ export function Overview() {
       ytdRevenue,
       churnRate,
       newCustomersThisMonth: currentMonth.acquisitions || 0,
+      monthlyCosts: currentMonthCosts,
+      ytdCosts,
+      grossMargin,
     })
 
     setChartData({
@@ -133,7 +156,7 @@ export function Overview() {
       })),
       sources: aggregateBySource(acquisitions),
     })
-  }, [loading, config, acquisitions, churnRecords])
+  }, [loading, config, acquisitions, churnRecords, costs, campaigns, socialCampaigns])
 
   return (
     <PageWrapper
@@ -141,9 +164,9 @@ export function Overview() {
       subtitle="Key metrics and performance indicators"
     >
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         {loading ? (
-          Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)
+          Array.from({ length: 9 }).map((_, i) => <CardSkeleton key={i} />)
         ) : (
           <>
             <KPICard
@@ -201,6 +224,36 @@ export function Overview() {
               icon={
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                </svg>
+              }
+            />
+            <KPICard
+              title="Monthly Costs"
+              value={formatCurrency(kpis.monthlyCosts)}
+              subtitle="Manual + linked marketing"
+              icon={
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M7 15h2m4 0h4M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              }
+            />
+            <KPICard
+              title="YTD Costs"
+              value={formatCurrency(kpis.ytdCosts)}
+              icon={
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m-6 4h6m-6 4h4m5 5H5a2 2 0 01-2-2V5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2z" />
+                </svg>
+              }
+            />
+            <KPICard
+              title="Gross Margin"
+              value={formatPercentage(kpis.grossMargin)}
+              changeType={kpis.grossMargin >= 40 ? 'positive' : kpis.grossMargin >= 20 ? 'neutral' : 'negative'}
+              subtitle="(MRR − Costs) ÷ MRR"
+              icon={
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3v18h18M7 14l4-4 4 4 5-5" />
                 </svg>
               }
             />

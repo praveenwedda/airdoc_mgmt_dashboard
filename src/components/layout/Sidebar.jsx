@@ -14,6 +14,7 @@ const navItems = [
       { name: 'Revenue', path: '/dashboard/revenue' },
       { name: 'Customers', path: '/dashboard/customers' },
       { name: 'Marketing Summary', path: '/dashboard/marketing' },
+      { name: 'Cost Analysis', path: '/dashboard/costs' },
     ]
   },
   {

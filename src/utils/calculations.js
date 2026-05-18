@@ -103,6 +103,87 @@ export function getLastNMonths(n) {
   return months
 }
 
+// Build a YYYY-MM key from any ISO date string
+function monthKey(dateStr) {
+  if (!dateStr) return null
+  // Already YYYY-MM-DD: just take the first 7 chars
+  return dateStr.length >= 7 ? dateStr.slice(0, 7) : null
+}
+
+// Compute linked costs for a given (month, year) by aggregating
+// marketing spend recorded in other parts of the app.
+// Returns an array of { name, amount, source, category } items.
+export function computeLinkedCosts(month, year, campaigns = [], socialCampaigns = []) {
+  const key = `${year}-${String(month).padStart(2, '0')}`
+  const items = []
+
+  campaigns.forEach(c => {
+    if (!c?.startDate) return
+    if (monthKey(c.startDate) !== key) return
+    if (!c.cost || c.cost <= 0) return
+    items.push({
+      name: c.name || (c.type === 'sms' ? 'SMS Campaign' : 'Email Campaign'),
+      amount: Number(c.cost) || 0,
+      source: c.type === 'sms' ? 'sms_campaign' : 'email_campaign',
+      category: 'Marketing',
+      sourceId: c.id,
+    })
+  })
+
+  socialCampaigns.forEach(s => {
+    if (!s?.date) return
+    if (monthKey(s.date) !== key) return
+    if (!s.spend || s.spend <= 0) return
+    items.push({
+      name: s.campaignName || 'Social Media Ad',
+      amount: Number(s.spend) || 0,
+      source: 'social_media',
+      category: `Social Media${s.platform ? ` (${s.platform})` : ''}`,
+      sourceId: s.id,
+    })
+  })
+
+  return items
+}
+
+// Sum helper for a cost record's manual entries
+export function sumManualCosts(record) {
+  if (!record) return { fixed: 0, variable: 0, adHoc: 0 }
+  const fixed = (record.fixedCosts || []).reduce((s, c) => s + (Number(c.actual) || 0), 0)
+  const variable = (record.variableCosts || []).reduce((s, c) => s + (Number(c.total) || 0), 0)
+  const adHoc = (record.adHocCosts || []).reduce((s, c) => s + (Number(c.amount) || 0), 0)
+  return { fixed, variable, adHoc }
+}
+
+// Sum linked items
+export function sumLinkedCosts(linked) {
+  return (linked || []).reduce((s, c) => s + (Number(c.amount) || 0), 0)
+}
+
+// Build a per-month roll-up across the last N months that combines
+// manual cost records with linked marketing spend.
+export function buildMonthlyCostSeries(months, costs = [], campaigns = [], socialCampaigns = []) {
+  return months.map(m => {
+    const record = costs.find(c => c.year === m.year && c.month === m.month)
+    const { fixed, variable, adHoc } = sumManualCosts(record)
+    const linked = computeLinkedCosts(m.month, m.year, campaigns, socialCampaigns)
+    const linkedTotal = sumLinkedCosts(linked)
+    return {
+      monthLabel: m.label,
+      monthKey: m.key,
+      year: m.year,
+      month: m.month,
+      fixed,
+      variable,
+      adHoc,
+      linked: linkedTotal,
+      total: fixed + variable + adHoc + linkedTotal,
+      record,
+      linkedItems: linked,
+    }
+  })
+}
+
 // Aggregate acquisitions by source
 export function aggregateBySource(acquisitions) {
   const bySource = {}
