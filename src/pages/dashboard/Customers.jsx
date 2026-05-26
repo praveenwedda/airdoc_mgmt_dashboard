@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { PageWrapper, PageSection } from '../../components/layout'
 import { Card, KPICard } from '../../components/ui/Card'
 import { Select } from '../../components/ui/Input'
@@ -7,8 +7,31 @@ import { SourceDonutChart } from '../../components/charts/DonutChart'
 import { DataTable } from '../../components/tables/DataTable'
 import { SentimentBadge } from '../../components/ui/Badge'
 import { useCollection, useDocument } from '../../hooks/useFirestore'
-import { formatNumber, formatPercentage, formatDate } from '../../utils/formatters'
+import { formatNumber, formatPercentage, formatDate, getMonthName } from '../../utils/formatters'
 import { getLastNMonths, aggregateBySource, calculateGrowthPercentage } from '../../utils/calculations'
+
+const isFreePackage = (pkg) => (pkg?.name || '').trim().toUpperCase() === 'FREE'
+
+// Pick the applicable monthly target for the given (month, year) in priority order:
+// specific match → range match → 'all' default.
+function findApplicableTarget(monthlyTargets, month, year) {
+  if (!Array.isArray(monthlyTargets) || monthlyTargets.length === 0) return null
+  const specific = monthlyTargets.find(t =>
+    t?.periodType === 'specific' &&
+    Number(t.startMonth) === month &&
+    Number(t.startYear) === year
+  )
+  if (specific) return specific
+  const currKey = year * 12 + month
+  const range = monthlyTargets.find(t => {
+    if (t?.periodType !== 'range') return false
+    const startKey = Number(t.startYear) * 12 + Number(t.startMonth)
+    const endKey = Number(t.endYear) * 12 + Number(t.endMonth)
+    return currKey >= startKey && currKey <= endKey
+  })
+  if (range) return range
+  return monthlyTargets.find(t => t?.periodType === 'all') || null
+}
 
 export function Customers() {
   const { document: config, loading: configLoading } = useDocument('config', 'app')
@@ -24,6 +47,32 @@ export function Customers() {
 
   // Get prospect meetings (leads)
   const leads = meetings.filter(m => m.type === 'prospect')
+
+  // ----- Monthly target progress (per package) -----
+  const now = new Date()
+  const currentMonth = now.getMonth() + 1
+  const currentYear = now.getFullYear()
+  const currentMonthKey = `${currentYear}-${String(currentMonth).padStart(2, '0')}`
+
+  const applicableTarget = useMemo(
+    () => findApplicableTarget(config?.monthlyTargets || [], currentMonth, currentYear),
+    [config, currentMonth, currentYear]
+  )
+
+  const currentMonthAcqByPackage = useMemo(() => {
+    const map = {}
+    acquisitions.forEach(a => {
+      if (!a.date?.startsWith(currentMonthKey)) return
+      const key = a.package || 'Other'
+      map[key] = (map[key] || 0) + (a.count || 0)
+    })
+    return map
+  }, [acquisitions, currentMonthKey])
+
+  const targetablePackages = useMemo(
+    () => (config?.packages || []).filter(p => p.active && !isFreePackage(p)),
+    [config]
+  )
 
   useEffect(() => {
     if (loading) return
@@ -127,27 +176,61 @@ export function Customers() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <SourceDonutChart data={chartData.sources} loading={loading} />
 
-        {/* Acquisition Target Progress */}
+        {/* Monthly Target Progress — per package, pulled from configuration */}
         <Card>
-          <h3 className="text-base font-semibold text-gray-900 mb-4">Monthly Target Progress</h3>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className="text-apple-text-secondary">New Customers Target</span>
-                <span className="font-medium">
-                  {chartData.acqChurn[chartData.acqChurn.length - 1]?.acquisitions || 0} / {config?.targets?.newCustomerTarget || 10}
-                </span>
-              </div>
-              <div className="h-3 bg-apple-bg rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-apple-blue rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(100, ((chartData.acqChurn[chartData.acqChurn.length - 1]?.acquisitions || 0) / (config?.targets?.newCustomerTarget || 10)) * 100)}%`
-                  }}
-                />
-              </div>
-            </div>
+          <div className="flex items-baseline justify-between mb-1">
+            <h3 className="text-base font-semibold text-gray-900">Monthly Target Progress</h3>
+            <span className="text-xs text-apple-text-secondary">
+              {getMonthName(currentMonth - 1, true)} {currentYear}
+            </span>
           </div>
+          <p className="text-xs text-apple-text-secondary mb-4">
+            {applicableTarget
+              ? (applicableTarget.periodType === 'all'
+                  ? 'Using default (All Months) target from Configuration'
+                  : applicableTarget.periodType === 'specific'
+                    ? 'Using target set for this month in Configuration'
+                    : 'Using range target covering this month in Configuration')
+              : 'No target configured for this month. Add one in Configuration → Baselines & Targets.'}
+          </p>
+          {targetablePackages.length === 0 ? (
+            <p className="text-sm text-apple-text-secondary">
+              No active packages configured.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {targetablePackages.map(pkg => {
+                const pt = (applicableTarget?.packageTargets || []).find(
+                  t => t.packageId === pkg.id || t.packageName === pkg.name
+                )
+                const target = Number(pt?.target) || 0
+                const current = currentMonthAcqByPackage[pkg.name] || 0
+                const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0
+                const met = target > 0 && current >= target
+                return (
+                  <div key={pkg.id}>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-apple-text-secondary">{pkg.name}</span>
+                      <span className="font-medium">
+                        {formatNumber(current)} / {formatNumber(target)}
+                        {target > 0 && (
+                          <span className="ml-2 text-xs text-apple-text-secondary">
+                            ({formatPercentage(pct, 0)})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="h-3 bg-apple-bg rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${met ? 'bg-apple-green' : 'bg-apple-blue'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </Card>
       </div>
 

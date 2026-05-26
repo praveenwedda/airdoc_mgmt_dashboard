@@ -22,6 +22,7 @@ import { Campaigns } from './pages/admin/Campaigns'
 import { SocialMedia } from './pages/admin/SocialMedia'
 import { Users } from './pages/admin/Users'
 import { Integrations } from './pages/admin/Integrations'
+import { IntegrationMeta } from './pages/admin/IntegrationMeta'
 
 // Protected Route wrapper
 function ProtectedRoute({ children, requireManager = false, requireAdmin = false }) {
@@ -203,6 +204,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requireAdmin>
             <Integrations />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/integrations/meta"
+        element={
+          <ProtectedRoute requireAdmin>
+            <IntegrationMeta />
           </ProtectedRoute>
         }
       />

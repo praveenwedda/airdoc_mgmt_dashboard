@@ -29,6 +29,9 @@ const PERIOD_TYPE_OPTIONS = [
   { value: 'range', label: 'Date Range' },
 ]
 
+const isFreePackage = (pkg) => (pkg?.name || '').trim().toUpperCase() === 'FREE'
+const isFreePackageTarget = (pt) => (pt?.packageName || '').trim().toUpperCase() === 'FREE'
+
 export function Configuration() {
   const { document: config, loading } = useDocument('config', 'app')
   const [appName, setAppName] = useState('')
@@ -71,11 +74,13 @@ export function Configuration() {
     if (packages.length > 0 && targetFormData.packageTargets.length === 0) {
       setTargetFormData(prev => ({
         ...prev,
-        packageTargets: packages.filter(p => p.active).map(p => ({
-          packageId: p.id,
-          packageName: p.name,
-          target: 0,
-        })),
+        packageTargets: packages
+          .filter(p => p.active && !isFreePackage(p))
+          .map(p => ({
+            packageId: p.id,
+            packageName: p.name,
+            target: 0,
+          })),
       }))
     }
   }, [packages])
@@ -156,24 +161,29 @@ export function Configuration() {
       endYear: currentYear,
       mrrTarget: 0,
       expenditureBaseline: 0,
-      packageTargets: packages.filter(p => p.active).map(p => ({
-        packageId: p.id,
-        packageName: p.name,
-        target: 0,
-      })),
+      packageTargets: packages
+        .filter(p => p.active && !isFreePackage(p))
+        .map(p => ({
+          packageId: p.id,
+          packageName: p.name,
+          target: 0,
+        })),
     })
     setShowTargetModal(true)
   }
 
   const openEditTargetModal = (target, index) => {
     setEditingTarget(index)
-    setTargetFormData({
-      ...target,
-      packageTargets: target.packageTargets || packages.filter(p => p.active).map(p => ({
+    const fallbackPackageTargets = packages
+      .filter(p => p.active && !isFreePackage(p))
+      .map(p => ({
         packageId: p.id,
         packageName: p.name,
         target: 0,
-      })),
+      }))
+    setTargetFormData({
+      ...target,
+      packageTargets: target.packageTargets || fallbackPackageTargets,
     })
     setShowTargetModal(true)
   }
@@ -187,27 +197,94 @@ export function Configuration() {
     }))
   }
 
-  const handleSaveTarget = () => {
-    const newTarget = {
-      id: editingTarget !== null ? monthlyTargets[editingTarget].id : Date.now().toString(),
-      ...targetFormData,
-    }
+  const [targetFormError, setTargetFormError] = useState('')
+  const [targetSaving, setTargetSaving] = useState(false)
 
-    if (editingTarget !== null) {
-      const updated = [...monthlyTargets]
-      updated[editingTarget] = newTarget
-      setMonthlyTargets(updated)
-    } else {
-      setMonthlyTargets([...monthlyTargets, newTarget])
-    }
-    setShowTargetModal(false)
+  // Persist just the monthlyTargets field so target add/edit/delete are
+  // durable on their own — they don't require clicking the page-level
+  // "Save Changes" button (which is only for app name / packages / costs).
+  const persistMonthlyTargets = async (nextTargets) => {
+    await setDoc(
+      doc(db, 'config', 'app'),
+      { monthlyTargets: nextTargets, updatedAt: serverTimestamp() },
+      { merge: true }
+    )
   }
 
-  const handleDeleteTarget = () => {
-    if (targetToDelete !== null) {
-      setMonthlyTargets(monthlyTargets.filter((_, i) => i !== targetToDelete))
+  const handleSaveTarget = async () => {
+    const periodType = targetFormData.periodType
+    if (!['all', 'specific', 'range'].includes(periodType)) {
+      setTargetFormError('Please choose how this target applies (All / Specific / Range).')
+      return
+    }
+
+    const startMonth = Number(targetFormData.startMonth)
+    const startYear = Number(targetFormData.startYear)
+    const endMonth = Number(targetFormData.endMonth)
+    const endYear = Number(targetFormData.endYear)
+
+    if (periodType === 'specific') {
+      if (!startMonth || !startYear) {
+        setTargetFormError('Pick the month and year for this specific target.')
+        return
+      }
+    }
+    if (periodType === 'range') {
+      if (!startMonth || !startYear || !endMonth || !endYear) {
+        setTargetFormError('Pick start and end month/year for the range.')
+        return
+      }
+      const startKey = startYear * 12 + startMonth
+      const endKey = endYear * 12 + endMonth
+      if (endKey < startKey) {
+        setTargetFormError('End month/year cannot be before start month/year.')
+        return
+      }
+    }
+
+    const newTarget = {
+      id: editingTarget !== null ? monthlyTargets[editingTarget].id : Date.now().toString(),
+      periodType,
+      startMonth,
+      startYear,
+      endMonth,
+      endYear,
+      mrrTarget: Number(targetFormData.mrrTarget) || 0,
+      expenditureBaseline: Number(targetFormData.expenditureBaseline) || 0,
+      packageTargets: (targetFormData.packageTargets || []).filter(pt => !isFreePackageTarget(pt)),
+    }
+
+    const nextTargets = editingTarget !== null
+      ? monthlyTargets.map((t, i) => (i === editingTarget ? newTarget : t))
+      : [...monthlyTargets, newTarget]
+
+    try {
+      setTargetSaving(true)
+      setTargetFormError('')
+      await persistMonthlyTargets(nextTargets)
+      setMonthlyTargets(nextTargets)
+      setShowTargetModal(false)
+    } catch (e) {
+      console.error('Error saving target:', e)
+      setTargetFormError('Failed to save target. Please try again.')
+    } finally {
+      setTargetSaving(false)
+    }
+  }
+
+  const handleDeleteTarget = async () => {
+    if (targetToDelete === null) return
+    const nextTargets = monthlyTargets.filter((_, i) => i !== targetToDelete)
+    try {
+      setTargetSaving(true)
+      await persistMonthlyTargets(nextTargets)
+      setMonthlyTargets(nextTargets)
       setShowDeleteTargetModal(false)
       setTargetToDelete(null)
+    } catch (e) {
+      console.error('Error deleting target:', e)
+    } finally {
+      setTargetSaving(false)
     }
   }
 
@@ -517,18 +594,37 @@ export function Configuration() {
       {/* Add/Edit Target Modal */}
       <Modal
         isOpen={showTargetModal}
-        onClose={() => setShowTargetModal(false)}
+        onClose={() => { setShowTargetModal(false); setTargetFormError('') }}
         title={editingTarget !== null ? 'Edit Target' : 'Add Target'}
         size="lg"
       >
         <div className="space-y-6">
-          {/* Period Type */}
-          <Select
-            label="Apply To"
-            value={targetFormData.periodType}
-            onChange={(e) => setTargetFormData({ ...targetFormData, periodType: e.target.value })}
-            options={PERIOD_TYPE_OPTIONS}
-          />
+          {/* Period Type — segmented control */}
+          <div>
+            <label className="block text-xs font-medium text-apple-text-secondary uppercase tracking-wide mb-2">
+              Apply To
+            </label>
+            <div className="inline-flex w-full rounded-apple-sm bg-apple-bg p-1">
+              {PERIOD_TYPE_OPTIONS.map(opt => {
+                const selected = targetFormData.periodType === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setTargetFormData(prev => ({ ...prev, periodType: opt.value }))}
+                    className={`flex-1 px-4 py-2 text-sm rounded-[8px] transition-colors ${
+                      selected
+                        ? 'bg-white text-apple-blue font-medium shadow-sm'
+                        : 'text-apple-text-secondary hover:text-gray-900'
+                    }`}
+                    aria-pressed={selected}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           {/* Specific Month */}
           {targetFormData.periodType === 'specific' && (
@@ -536,13 +632,13 @@ export function Configuration() {
               <Select
                 label="Month"
                 value={targetFormData.startMonth}
-                onChange={(e) => setTargetFormData({ ...targetFormData, startMonth: parseInt(e.target.value) })}
+                onChange={(e) => setTargetFormData(prev => ({ ...prev, startMonth: parseInt(e.target.value) || 0 }))}
                 options={MONTH_OPTIONS}
               />
               <Select
                 label="Year"
                 value={targetFormData.startYear}
-                onChange={(e) => setTargetFormData({ ...targetFormData, startYear: parseInt(e.target.value) })}
+                onChange={(e) => setTargetFormData(prev => ({ ...prev, startYear: parseInt(e.target.value) || 0 }))}
                 options={YEAR_OPTIONS}
               />
             </div>
@@ -555,13 +651,13 @@ export function Configuration() {
                 <Select
                   label="Start Month"
                   value={targetFormData.startMonth}
-                  onChange={(e) => setTargetFormData({ ...targetFormData, startMonth: parseInt(e.target.value) })}
+                  onChange={(e) => setTargetFormData(prev => ({ ...prev, startMonth: parseInt(e.target.value) || 0 }))}
                   options={MONTH_OPTIONS}
                 />
                 <Select
                   label="Start Year"
                   value={targetFormData.startYear}
-                  onChange={(e) => setTargetFormData({ ...targetFormData, startYear: parseInt(e.target.value) })}
+                  onChange={(e) => setTargetFormData(prev => ({ ...prev, startYear: parseInt(e.target.value) || 0 }))}
                   options={YEAR_OPTIONS}
                 />
               </div>
@@ -569,13 +665,13 @@ export function Configuration() {
                 <Select
                   label="End Month"
                   value={targetFormData.endMonth}
-                  onChange={(e) => setTargetFormData({ ...targetFormData, endMonth: parseInt(e.target.value) })}
+                  onChange={(e) => setTargetFormData(prev => ({ ...prev, endMonth: parseInt(e.target.value) || 0 }))}
                   options={MONTH_OPTIONS}
                 />
                 <Select
                   label="End Year"
                   value={targetFormData.endYear}
-                  onChange={(e) => setTargetFormData({ ...targetFormData, endYear: parseInt(e.target.value) })}
+                  onChange={(e) => setTargetFormData(prev => ({ ...prev, endYear: parseInt(e.target.value) || 0 }))}
                   options={YEAR_OPTIONS}
                 />
               </div>
@@ -588,56 +684,72 @@ export function Configuration() {
               label="MRR Target (A$)"
               type="number"
               value={targetFormData.mrrTarget}
-              onChange={(e) => setTargetFormData({ ...targetFormData, mrrTarget: parseFloat(e.target.value) || 0 })}
+              onChange={(e) => setTargetFormData(prev => ({ ...prev, mrrTarget: parseFloat(e.target.value) || 0 }))}
               placeholder="0"
             />
             <Input
               label="Expenditure Baseline (A$)"
               type="number"
               value={targetFormData.expenditureBaseline}
-              onChange={(e) => setTargetFormData({ ...targetFormData, expenditureBaseline: parseFloat(e.target.value) || 0 })}
+              onChange={(e) => setTargetFormData(prev => ({ ...prev, expenditureBaseline: parseFloat(e.target.value) || 0 }))}
               placeholder="0"
             />
           </div>
 
-          {/* Per-Package Customer Targets */}
+          {/* Per-Package Customer Targets (FREE excluded) */}
           <div>
             <label className="block text-xs font-medium text-[#6E6E73] uppercase tracking-wide mb-3">
               New Customer Targets (per package)
             </label>
-            {targetFormData.packageTargets.length === 0 ? (
-              <p className="text-sm text-[#6E6E73]">No active packages. Add packages first.</p>
-            ) : (
-              <div className="space-y-3">
-                {targetFormData.packageTargets.map((pt) => (
-                  <div key={pt.packageId} className="flex items-center gap-4 p-3 bg-[#F5F5F7] rounded-[12px]">
-                    <span className="flex-1 text-sm font-medium">{pt.packageName}</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={pt.target}
-                      onChange={(e) => updatePackageTarget(pt.packageId, e.target.value)}
-                      placeholder="0"
-                      className="w-24"
-                    />
-                    <span className="text-sm text-[#6E6E73]">customers</span>
+            {(() => {
+              const visiblePackageTargets = (targetFormData.packageTargets || []).filter(
+                pt => !isFreePackageTarget(pt)
+              )
+              if (visiblePackageTargets.length === 0) {
+                return <p className="text-sm text-[#6E6E73]">No active packages. Add packages first.</p>
+              }
+              return (
+                <div className="space-y-3">
+                  {visiblePackageTargets.map((pt) => (
+                    <div key={pt.packageId} className="flex items-center gap-4 p-3 bg-[#F5F5F7] rounded-[12px]">
+                      <span className="flex-1 text-sm font-medium">{pt.packageName}</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={pt.target}
+                        onChange={(e) => updatePackageTarget(pt.packageId, e.target.value)}
+                        placeholder="0"
+                        className="w-24"
+                      />
+                      <span className="text-sm text-[#6E6E73]">customers</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between pt-2 border-t border-[#E5E5EA]">
+                    <span className="text-sm font-medium">Total Target</span>
+                    <span className="text-sm font-semibold text-[#0071E3]">
+                      {visiblePackageTargets.reduce((sum, pt) => sum + (pt.target || 0), 0)} customers
+                    </span>
                   </div>
-                ))}
-                <div className="flex items-center justify-between pt-2 border-t border-[#E5E5EA]">
-                  <span className="text-sm font-medium">Total Target</span>
-                  <span className="text-sm font-semibold text-[#0071E3]">
-                    {targetFormData.packageTargets.reduce((sum, pt) => sum + (pt.target || 0), 0)} customers
-                  </span>
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
 
+          {targetFormError && (
+            <div className="p-3 rounded-[12px] bg-red-50 text-[#FF3B30] text-sm">
+              {targetFormError}
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-4">
-            <Button variant="secondary" onClick={() => setShowTargetModal(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => { setShowTargetModal(false); setTargetFormError('') }}
+              disabled={targetSaving}
+            >
               Cancel
             </Button>
-            <Button onClick={handleSaveTarget}>
+            <Button onClick={handleSaveTarget} loading={targetSaving}>
               {editingTarget !== null ? 'Update' : 'Add'} Target
             </Button>
           </div>

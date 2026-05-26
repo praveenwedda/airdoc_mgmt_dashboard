@@ -1,3 +1,7 @@
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from '../../services/firebase'
 import { PageWrapper, PageSection } from '../../components/layout'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -8,7 +12,7 @@ const PLATFORMS = [
   {
     id: 'meta',
     name: 'Meta (Facebook/Instagram)',
-    description: 'Connect your Meta Business account to automatically sync ad performance data.',
+    description: 'Connect a Meta System User token to sync ad campaign insights and Page posts.',
     icon: (
       <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
         <path d="M12 2.04c-5.5 0-10 4.49-10 10.02 0 5 3.66 9.15 8.44 9.9v-7H7.9v-2.9h2.54V9.85c0-2.52 1.49-3.92 3.78-3.92 1.09 0 2.24.2 2.24.2v2.47h-1.26c-1.24 0-1.63.78-1.63 1.57v1.88h2.78l-.45 2.9h-2.33v7a10 10 0 008.44-9.9c0-5.53-4.5-10.02-10-10.02z"/>
@@ -16,6 +20,8 @@ const PLATFORMS = [
     ),
     color: '#1877F2',
     docsUrl: 'https://developers.facebook.com/docs/marketing-apis/',
+    settingsPath: '/admin/integrations/meta',
+    available: true,
   },
   {
     id: 'linkedin',
@@ -28,6 +34,7 @@ const PLATFORMS = [
     ),
     color: '#0A66C2',
     docsUrl: 'https://docs.microsoft.com/en-us/linkedin/marketing/',
+    available: false,
   },
   {
     id: 'google',
@@ -40,6 +47,7 @@ const PLATFORMS = [
     ),
     color: '#4285F4',
     docsUrl: 'https://developers.google.com/google-ads/api/docs/start',
+    available: false,
   },
   {
     id: 'tiktok',
@@ -52,12 +60,30 @@ const PLATFORMS = [
     ),
     color: '#000000',
     docsUrl: 'https://ads.tiktok.com/marketing_api/docs',
+    available: false,
   },
 ]
 
 export function Integrations() {
   const { canConnectSocialAPIs } = usePermissions()
-  const apiEnabled = import.meta.env.VITE_SOCIAL_API_ENABLED === 'true'
+  const [connections, setConnections] = useState({})
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const snap = await getDoc(doc(db, 'social_tokens', 'meta'))
+        if (cancelled) return
+        if (snap.exists() && snap.data()?.accessToken) {
+          setConnections(prev => ({ ...prev, meta: true }))
+        }
+      } catch (e) {
+        // Ignore — rules will block non-admins; we just won't show "Connected"
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   if (!canConnectSocialAPIs) {
     return (
@@ -74,101 +100,66 @@ export function Integrations() {
       title="Social Media Connections"
       subtitle="Connect your advertising accounts for automated data sync"
     >
-      {!apiEnabled && (
-        <Card className="mb-6 bg-amber-50 border-amber-200">
-          <div className="flex items-start gap-4">
-            <div className="p-2 bg-amber-100 rounded-lg">
-              <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-amber-800">API Integration Disabled</h3>
-              <p className="text-sm text-amber-700 mt-1">
-                Social media API integration is currently disabled. To enable it:
-              </p>
-              <ol className="text-sm text-amber-700 mt-2 list-decimal list-inside space-y-1">
-                <li>Set <code className="bg-amber-100 px-1 rounded">VITE_SOCIAL_API_ENABLED=true</code> in your .env file</li>
-                <li>Add your API credentials for each platform</li>
-                <li>Restart the application</li>
-              </ol>
-            </div>
-          </div>
-        </Card>
-      )}
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {PLATFORMS.map((platform) => (
-          <Card key={platform.id} className="relative">
-            <div className="flex items-start gap-4">
-              <div
-                className="p-3 rounded-xl"
-                style={{ backgroundColor: `${platform.color}15`, color: platform.color }}
-              >
-                {platform.icon}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-base font-semibold text-gray-900">{platform.name}</h3>
-                  <Badge variant="default">Not Connected</Badge>
+        {PLATFORMS.map((platform) => {
+          const connected = !!connections[platform.id]
+          return (
+            <Card key={platform.id} className="relative">
+              <div className="flex items-start gap-4">
+                <div
+                  className="p-3 rounded-xl"
+                  style={{ backgroundColor: `${platform.color}15`, color: platform.color }}
+                >
+                  {platform.icon}
                 </div>
-                <p className="text-sm text-apple-text-secondary mb-4">
-                  {platform.description}
-                </p>
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={!apiEnabled}
-                    onClick={() => {
-                      // OAuth flow would be triggered here
-                      alert(`OAuth flow for ${platform.name} would be triggered here. This requires server-side implementation.`)
-                    }}
-                  >
-                    Connect
-                  </Button>
-                  <a
-                    href={platform.docsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-apple-blue hover:underline"
-                  >
-                    View Docs
-                  </a>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-base font-semibold text-gray-900">{platform.name}</h3>
+                    {platform.available
+                      ? (connected
+                          ? <Badge variant="success">Connected</Badge>
+                          : <Badge variant="default">Not Connected</Badge>)
+                      : <Badge variant="default">Coming Soon</Badge>}
+                  </div>
+                  <p className="text-sm text-apple-text-secondary mb-4">
+                    {platform.description}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    {platform.available && platform.settingsPath ? (
+                      <Link to={platform.settingsPath}>
+                        <Button variant={connected ? 'secondary' : 'primary'} size="sm">
+                          {connected ? 'Manage' : 'Connect'}
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Button variant="secondary" size="sm" disabled>
+                        Connect
+                      </Button>
+                    )}
+                    <a
+                      href={platform.docsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-apple-blue hover:underline"
+                    >
+                      View Docs
+                    </a>
+                  </div>
                 </div>
               </div>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          )
+        })}
       </div>
 
-      <PageSection title="Setup Instructions" className="mt-8">
+      <PageSection title="How sync works" className="mt-8">
         <Card>
-          <div className="prose prose-sm max-w-none">
-            <p className="text-apple-text-secondary">
-              To set up social media API integrations, you'll need to:
-            </p>
-            <ol className="text-apple-text-secondary space-y-2 mt-4">
-              <li>
-                <strong>Create developer accounts</strong> on each platform (Meta Business, LinkedIn Marketing, Google Ads, TikTok Business)
-              </li>
-              <li>
-                <strong>Register your application</strong> and obtain API credentials (Client ID, Client Secret)
-              </li>
-              <li>
-                <strong>Configure OAuth redirect URLs</strong> pointing to your deployed application
-              </li>
-              <li>
-                <strong>Add credentials to your .env file</strong> using the template provided
-              </li>
-              <li>
-                <strong>Enable the feature flag</strong> by setting <code>VITE_SOCIAL_API_ENABLED=true</code>
-              </li>
-            </ol>
-            <p className="text-apple-text-secondary mt-4">
-              Detailed setup instructions for each platform are available in the <strong>SETUP.md</strong> file.
-            </p>
-          </div>
+          <ul className="text-sm text-apple-text-secondary space-y-2 list-disc pl-5">
+            <li>Each platform stores its credentials under <code>social_tokens/&lt;platform&gt;</code> — admin-only by Firestore rules.</li>
+            <li>Sync writes to the shared <code>social_campaigns</code> collection so synced data shows up on Backend Panel → Marketing → Social Media alongside manually entered rows.</li>
+            <li>Re-syncing the same period upserts existing rows by deterministic ID (no duplicates).</li>
+            <li>Sync is manual via the platform's settings page — periodic background sync is not yet enabled.</li>
+          </ul>
         </Card>
       </PageSection>
     </PageWrapper>

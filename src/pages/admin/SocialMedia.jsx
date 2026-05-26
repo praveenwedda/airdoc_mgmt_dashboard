@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { PageWrapper, PageSection } from '../../components/layout'
 import { Card, KPICard } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -63,9 +64,15 @@ export function SocialMedia() {
     {
       key: 'source',
       header: 'Source',
-      render: (val) => <Badge variant={val === 'api' ? 'primary' : 'default'}>{val === 'api' ? 'API' : 'Manual'}</Badge>
+      render: (val) => {
+        if (val === 'meta_api') return <Badge variant="primary">Meta API</Badge>
+        if (val === 'api') return <Badge variant="primary">API</Badge>
+        return <Badge variant="default">Manual</Badge>
+      },
     },
   ]
+
+  const isApiSourced = (row) => row?.source === 'meta_api' || row?.source === 'api'
 
   const openAddModal = () => {
     setEditingRecord(null)
@@ -150,11 +157,16 @@ export function SocialMedia() {
       title="Social Media Campaigns"
       subtitle="Track social media advertising performance"
       actions={
-        canEditMarketing && (
-          <Button onClick={openAddModal}>
-            + Add Entry
-          </Button>
-        )
+        <div className="flex items-center gap-3">
+          <Link to="/admin/integrations/meta" className="text-sm text-apple-blue hover:underline">
+            Manage Meta connection →
+          </Link>
+          {canEditMarketing && (
+            <Button onClick={openAddModal}>
+              + Add Entry
+            </Button>
+          )}
+        </div>
       }
     >
       {/* KPI Summary */}
@@ -183,21 +195,6 @@ export function SocialMedia() {
         />
       </div>
 
-      {/* API Status Banner */}
-      {!import.meta.env.VITE_SOCIAL_API_ENABLED && (
-        <Card className="mb-6 bg-amber-50 border-amber-200">
-          <div className="flex items-center gap-3">
-            <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <div>
-              <p className="text-sm font-medium text-amber-800">API Integration Disabled</p>
-              <p className="text-xs text-amber-600">Social media data is entered manually. Enable API integration in settings for automated data sync.</p>
-            </div>
-          </div>
-        </Card>
-      )}
-
       <DataTable
         columns={columns}
         data={sortedCampaigns}
@@ -205,9 +202,11 @@ export function SocialMedia() {
         emptyMessage="No social media campaigns yet"
         actions={canEditMarketing ? (row) => (
           <>
-            <ActionButton variant="edit" onClick={() => openEditModal(row)} title="Edit">
-              <EditIcon />
-            </ActionButton>
+            {!isApiSourced(row) && (
+              <ActionButton variant="edit" onClick={() => openEditModal(row)} title="Edit">
+                <EditIcon />
+              </ActionButton>
+            )}
             {canDeleteRecords && (
               <ActionButton
                 variant="delete"
@@ -215,7 +214,7 @@ export function SocialMedia() {
                   setRecordToDelete(row)
                   setShowDeleteModal(true)
                 }}
-                title="Delete"
+                title={isApiSourced(row) ? 'Delete (will reappear on next sync)' : 'Delete'}
               >
                 <DeleteIcon />
               </ActionButton>
