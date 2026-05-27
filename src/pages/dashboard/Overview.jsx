@@ -9,6 +9,9 @@ import { useCollection, useDocument } from '../../hooks/useFirestore'
 import { formatCurrency, formatPercentage, formatNumber } from '../../utils/formatters'
 import {
   calculateGrowthPercentage,
+  calculateChurnRate,
+  findApplicableTarget,
+  sumPackageTargets,
   getLastNMonths,
   aggregateBySource,
   buildMonthlyCostSeries,
@@ -102,13 +105,34 @@ export function Overview() {
       const acqCount = monthAcquisitions.reduce((sum, a) => sum + (a.count || 0), 0)
       const churnCount = monthChurn.reduce((sum, c) => sum + (c.count || 0), 0)
 
+      // Targets that apply specifically to THIS month — varies per row so
+      // the chart's target line can step instead of being flat.
+      const monthTarget = findApplicableTarget(
+        config?.monthlyTargets || [],
+        month.month,
+        month.year
+      )
+      const mrrTarget = Number(monthTarget?.mrrTarget) || 0
+      const acquisitionTarget = sumPackageTargets(monthTarget)
+
       return {
         month: month.label,
         customers: totalCustomers,
         mrr,
         acquisitions: acqCount,
         churn: churnCount,
+        mrrTarget,
+        acquisitionTarget,
       }
+    })
+
+    // Cumulative customer target across the chart window — running total of
+    // each month's new-customer target. Lets the Active Customers chart show
+    // a target trajectory next to actuals.
+    let cumulativeTarget = 0
+    monthlyData.forEach(m => {
+      cumulativeTarget += Number(m.acquisitionTarget) || 0
+      m.customerTarget = cumulativeTarget
     })
 
     // Current month data
@@ -118,10 +142,12 @@ export function Overview() {
     // Calculate YTD revenue
     const ytdRevenue = monthlyData.reduce((sum, m) => sum + (m.mrr || 0), 0)
 
-    // Calculate churn rate
-    const churnRate = previousMonth.customers > 0
-      ? ((currentMonth.churn || 0) / previousMonth.customers) * 100
-      : 0
+    // Churn rate vs everyone exposed during the month (prev + acquired this month).
+    const churnRate = calculateChurnRate(
+      currentMonth.churn,
+      previousMonth.customers,
+      currentMonth.acquisitions
+    )
 
     // MRR growth
     const mrrGrowth = calculateGrowthPercentage(currentMonth.mrr, previousMonth.mrr)
@@ -147,12 +173,21 @@ export function Overview() {
     })
 
     setChartData({
-      revenue: monthlyData.map(m => ({ month: m.month, mrr: m.mrr })),
-      customers: monthlyData.map(m => ({ month: m.month, total: m.customers })),
+      revenue: monthlyData.map(m => ({
+        month: m.month,
+        mrr: m.mrr,
+        mrrTarget: m.mrrTarget,
+      })),
+      customers: monthlyData.map(m => ({
+        month: m.month,
+        total: m.customers,
+        customerTarget: m.customerTarget,
+      })),
       acquisitionsChurn: monthlyData.map(m => ({
         month: m.month,
         acquisitions: m.acquisitions,
         churn: m.churn,
+        acquisitionTarget: m.acquisitionTarget,
       })),
       sources: aggregateBySource(acquisitions),
     })
@@ -263,17 +298,16 @@ export function Overview() {
 
       {/* Charts Row 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <RevenueChart
-          data={chartData.revenue}
-          loading={loading}
-          targetMRR={config?.targets?.mrrTarget}
-        />
+        <RevenueChart data={chartData.revenue} loading={loading} />
         <CustomerGrowthChart data={chartData.customers} loading={loading} />
       </div>
 
       {/* Charts Row 2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AcquisitionChurnChart data={chartData.acquisitionsChurn} loading={loading} />
+        <AcquisitionChurnChart
+          data={chartData.acquisitionsChurn}
+          loading={loading}
+        />
         <SourceDonutChart data={chartData.sources} loading={loading} />
       </div>
     </PageWrapper>

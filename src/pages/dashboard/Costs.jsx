@@ -25,6 +25,7 @@ import {
   getLastNMonths,
   buildMonthlyCostSeries,
   calculateGrowthPercentage,
+  findApplicableTarget,
 } from '../../utils/calculations'
 
 const COST_COLORS = {
@@ -80,25 +81,38 @@ export function CostAnalysis() {
     })
   }, [months, acquisitions, churnRecords, config])
 
-  // Combined chart data: cost components + revenue
+  // Combined chart data: cost components + revenue + per-month baseline
   const chartData = useMemo(() => {
-    return series.map((s, idx) => ({
-      month: s.monthLabel,
-      Fixed: s.fixed,
-      Variable: s.variable,
-      'Ad Hoc': s.adHoc,
-      Marketing: s.linked,
-      Total: s.total,
-      Revenue: mrrByMonth[idx]?.mrr || 0,
-      Margin:
-        mrrByMonth[idx]?.mrr > 0
-          ? ((mrrByMonth[idx].mrr - s.total) / mrrByMonth[idx].mrr) * 100
-          : 0,
-    }))
-  }, [series, mrrByMonth])
+    return series.map((s, idx) => {
+      const monthTarget = findApplicableTarget(
+        config?.monthlyTargets || [],
+        s.month,
+        s.year
+      )
+      return {
+        month: s.monthLabel,
+        Fixed: s.fixed,
+        Variable: s.variable,
+        'Ad Hoc': s.adHoc,
+        Marketing: s.linked,
+        Total: s.total,
+        Revenue: mrrByMonth[idx]?.mrr || 0,
+        Baseline: Number(monthTarget?.expenditureBaseline) || 0,
+        Margin:
+          mrrByMonth[idx]?.mrr > 0
+            ? ((mrrByMonth[idx].mrr - s.total) / mrrByMonth[idx].mrr) * 100
+            : 0,
+      }
+    })
+  }, [series, mrrByMonth, config])
 
-  // KPIs
-  const baseline = config?.targets?.expenditureBaseline || 0
+  // KPIs — baseline reflects the applicable target for the current month.
+  const currentMonthTarget = findApplicableTarget(
+    config?.monthlyTargets || [],
+    series[series.length - 1]?.month,
+    series[series.length - 1]?.year
+  )
+  const baseline = Number(currentMonthTarget?.expenditureBaseline) || 0
   const current = series[series.length - 1] || { total: 0, fixed: 0, variable: 0, adHoc: 0, linked: 0 }
   const previous = series[series.length - 2] || { total: 0 }
   const ytd = series.reduce((sum, m) => sum + (m.total || 0), 0)
@@ -241,12 +255,16 @@ export function CostAnalysis() {
                     strokeWidth={2}
                     dot={{ r: 3 }}
                   />
-                  {baseline > 0 && (
-                    <ReferenceLine
-                      y={baseline}
+                  {chartData.some(d => (Number(d.Baseline) || 0) > 0) && (
+                    <Line
+                      type="linear"
+                      dataKey="Baseline"
+                      name="Expenditure Baseline"
                       stroke="#6E6E73"
+                      strokeWidth={2}
                       strokeDasharray="5 5"
-                      label={{ value: 'Baseline', fill: '#6E6E73', fontSize: 11 }}
+                      dot={false}
+                      activeDot={false}
                     />
                   )}
                 </ComposedChart>

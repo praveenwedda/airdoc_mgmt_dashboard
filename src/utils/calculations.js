@@ -11,10 +11,45 @@ export function calculateMRR(activeCustomersByPackage, packages) {
   }, 0)
 }
 
-// Calculate churn rate
-export function calculateChurnRate(churned, startOfMonthCustomers) {
-  if (!startOfMonthCustomers || startOfMonthCustomers === 0) return 0
-  return (churned / startOfMonthCustomers) * 100
+// Calculate churn rate against all customers exposed during the month.
+// "Exposed" = customers present at the start of the month plus any acquired
+// during the month. This avoids the degenerate case where churning the only
+// pre-existing customer reads as 100% even when several new customers
+// joined the same month.
+//   churn / (startOfMonthCustomers + acquisitions) * 100
+export function calculateChurnRate(churned, startOfMonthCustomers, acquisitions = 0) {
+  const denom = (startOfMonthCustomers || 0) + (acquisitions || 0)
+  if (denom <= 0) return 0
+  return ((churned || 0) / denom) * 100
+}
+
+// Pick the applicable monthly target for (month, year) in priority order:
+// specific match → range match → 'all' default. Returns null if none.
+export function findApplicableTarget(monthlyTargets, month, year) {
+  if (!Array.isArray(monthlyTargets) || monthlyTargets.length === 0) return null
+  const specific = monthlyTargets.find(t =>
+    t?.periodType === 'specific' &&
+    Number(t.startMonth) === month &&
+    Number(t.startYear) === year
+  )
+  if (specific) return specific
+  const currKey = year * 12 + month
+  const range = monthlyTargets.find(t => {
+    if (t?.periodType !== 'range') return false
+    const startKey = Number(t.startYear) * 12 + Number(t.startMonth)
+    const endKey = Number(t.endYear) * 12 + Number(t.endMonth)
+    return currKey >= startKey && currKey <= endKey
+  })
+  if (range) return range
+  return monthlyTargets.find(t => t?.periodType === 'all') || null
+}
+
+// Sum of per-package customer targets in a target record.
+export function sumPackageTargets(target) {
+  return (target?.packageTargets || []).reduce(
+    (sum, pt) => sum + (Number(pt?.target) || 0),
+    0
+  )
 }
 
 // Calculate growth percentage
@@ -85,18 +120,33 @@ export function groupByMonth(data, dateField = 'date') {
   return grouped
 }
 
-// Get last N months
+// Earliest month the dashboard has meaningful data for. Chart X-axes never
+// extend further back than this — anything earlier predates go-live and
+// would just be empty noise on screen.
+export const GO_LIVE = { year: 2026, month: 4 } // April 2026
+
+// Get last N months ending at the current month, clamped so the series
+// never starts earlier than GO_LIVE.
 export function getLastNMonths(n) {
   const months = []
   const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
 
-  for (let i = n - 1; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+  const currentKey = currentYear * 12 + currentMonth
+  const requestedStartKey = currentKey - (n - 1)
+  const goLiveKey = GO_LIVE.year * 12 + GO_LIVE.month
+  const startKey = Math.max(requestedStartKey, goLiveKey)
+
+  for (let key = startKey; key <= currentKey; key++) {
+    const year = Math.floor((key - 1) / 12)
+    const month = ((key - 1) % 12) + 1
+    const date = new Date(year, month - 1, 1)
     months.push({
-      key: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`,
+      key: `${year}-${String(month).padStart(2, '0')}`,
       label: date.toLocaleDateString('en-AU', { month: 'short', year: 'numeric' }),
-      year: date.getFullYear(),
-      month: date.getMonth() + 1,
+      year,
+      month,
     })
   }
 

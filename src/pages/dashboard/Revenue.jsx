@@ -5,7 +5,7 @@ import { Select } from '../../components/ui/Input'
 import { RevenueChart } from '../../components/charts/RevenueChart'
 import { useCollection, useDocument } from '../../hooks/useFirestore'
 import { formatCurrency, formatPercentage } from '../../utils/formatters'
-import { getLastNMonths, calculateGrowthPercentage } from '../../utils/calculations'
+import { getLastNMonths, calculateGrowthPercentage, findApplicableTarget } from '../../utils/calculations'
 import {
   BarChart,
   Bar,
@@ -110,10 +110,17 @@ export function Revenue() {
       // Calculate total customers across all packages
       const totalCustomers = Object.values(cumulativeCustomersByPackage).reduce((sum, count) => sum + count, 0)
 
+      const monthTarget = findApplicableTarget(
+        config?.monthlyTargets || [],
+        month.month,
+        month.year
+      )
+
       return {
         month: month.label,
         mrr: totalMRR,
         customers: totalCustomers,
+        mrrTarget: Number(monthTarget?.mrrTarget) || 0,
         ...packageRevenue,
       }
     })
@@ -205,11 +212,7 @@ export function Revenue() {
 
       {/* MRR Chart */}
       <PageSection title="MRR Trend">
-        <RevenueChart
-          data={revenueData}
-          loading={loading}
-          targetMRR={config?.targets?.mrrTarget}
-        />
+        <RevenueChart data={revenueData} loading={loading} />
       </PageSection>
 
       {/* Revenue by Package */}

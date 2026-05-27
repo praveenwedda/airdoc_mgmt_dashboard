@@ -1,12 +1,13 @@
 import {
-  AreaChart,
+  ComposedChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
+  Legend,
 } from 'recharts'
 import { ChartWrapper } from './ChartWrapper'
 import { formatCurrency } from '../../utils/formatters'
@@ -27,52 +28,56 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null
 }
 
-// Calculate appropriate tick interval based on max value
-function getYAxisConfig(data, dataKey) {
-  if (!data || data.length === 0) return { domain: [0, 500], ticks: [0, 100, 200, 300, 400, 500] }
-
-  const maxValue = Math.max(...data.map(d => d[dataKey] || 0))
-
-  if (maxValue <= 0) {
+// Y-axis sizing considers BOTH the actual series and any target values
+// in the data, so target lines aren't clipped below the visible area.
+function getYAxisConfig(data, keys) {
+  if (!data || data.length === 0) {
     return { domain: [0, 500], ticks: [0, 100, 200, 300, 400, 500] }
-  } else if (maxValue <= 500) {
-    return { domain: [0, 500], ticks: [0, 100, 200, 300, 400, 500] }
-  } else if (maxValue <= 1000) {
-    return { domain: [0, 1000], ticks: [0, 200, 400, 600, 800, 1000] }
-  } else if (maxValue <= 5000) {
+  }
+  const maxValue = Math.max(
+    0,
+    ...data.flatMap(d => keys.map(k => Number(d[k]) || 0))
+  )
+  if (maxValue <= 0) return { domain: [0, 500], ticks: [0, 100, 200, 300, 400, 500] }
+  if (maxValue <= 500) return { domain: [0, 500], ticks: [0, 100, 200, 300, 400, 500] }
+  if (maxValue <= 1000) return { domain: [0, 1000], ticks: [0, 200, 400, 600, 800, 1000] }
+  if (maxValue <= 5000) {
     const ceiling = Math.ceil(maxValue / 1000) * 1000
     const step = ceiling / 5
-    return {
-      domain: [0, ceiling],
-      ticks: Array.from({ length: 6 }, (_, i) => i * step)
-    }
-  } else {
-    // For values over 5000, use larger increments
-    const magnitude = Math.pow(10, Math.floor(Math.log10(maxValue)))
-    const ceiling = Math.ceil(maxValue / magnitude) * magnitude
-    const step = ceiling / 5
-    return {
-      domain: [0, ceiling],
-      ticks: Array.from({ length: 6 }, (_, i) => Math.round(i * step))
-    }
+    return { domain: [0, ceiling], ticks: Array.from({ length: 6 }, (_, i) => i * step) }
   }
+  const magnitude = Math.pow(10, Math.floor(Math.log10(maxValue)))
+  const ceiling = Math.ceil(maxValue / magnitude) * magnitude
+  const step = ceiling / 5
+  return { domain: [0, ceiling], ticks: Array.from({ length: 6 }, (_, i) => Math.round(i * step)) }
 }
 
+// Accepts either `targetMRR` (legacy single value) or, preferred, per-month
+// target values embedded in each row as `mrrTarget`. When per-month values
+// are present, we draw a stepped dashed line; the chart auto-extends its
+// Y-axis to include those values.
 export function RevenueChart({ data, loading = false, targetMRR }) {
   const isEmpty = !data || data.length === 0
-  const yAxisConfig = getYAxisConfig(data, 'mrr')
 
-  const formatYAxis = (value) => {
-    if (value >= 1000) {
-      return `A$${(value / 1000).toFixed(0)}k`
-    }
-    return `A$${value}`
-  }
+  // If `mrrTarget` isn't already in the data, fill it from the legacy scalar
+  // so the chart shape stays consistent.
+  const enrichedData = (data || []).map(row => ({
+    ...row,
+    mrrTarget:
+      row.mrrTarget !== undefined && row.mrrTarget !== null
+        ? row.mrrTarget
+        : (Number(targetMRR) || 0),
+  }))
+
+  const hasAnyTarget = enrichedData.some(d => (Number(d.mrrTarget) || 0) > 0)
+  const yAxisConfig = getYAxisConfig(enrichedData, hasAnyTarget ? ['mrr', 'mrrTarget'] : ['mrr'])
+
+  const formatYAxis = (value) => (value >= 1000 ? `A$${(value / 1000).toFixed(0)}k` : `A$${value}`)
 
   return (
     <ChartWrapper title="Monthly Recurring Revenue" loading={loading} isEmpty={isEmpty}>
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
+        <ComposedChart data={enrichedData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
           <defs>
             <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#0071E3" stopOpacity={0.15} />
@@ -95,13 +100,8 @@ export function RevenueChart({ data, loading = false, targetMRR }) {
             tickFormatter={formatYAxis}
           />
           <Tooltip content={<CustomTooltip />} />
-          {targetMRR && (
-            <ReferenceLine
-              y={targetMRR}
-              stroke="#34C759"
-              strokeDasharray="5 5"
-              label={{ value: 'Target', fill: '#34C759', fontSize: 11 }}
-            />
+          {hasAnyTarget && (
+            <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" iconSize={8} />
           )}
           <Area
             type="monotone"
@@ -112,7 +112,19 @@ export function RevenueChart({ data, loading = false, targetMRR }) {
             fillOpacity={1}
             fill="url(#colorRevenue)"
           />
-        </AreaChart>
+          {hasAnyTarget && (
+            <Line
+              type="linear"
+              dataKey="mrrTarget"
+              name="MRR Target"
+              stroke="#34C759"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={false}
+              activeDot={false}
+            />
+          )}
+        </ComposedChart>
       </ResponsiveContainer>
     </ChartWrapper>
   )

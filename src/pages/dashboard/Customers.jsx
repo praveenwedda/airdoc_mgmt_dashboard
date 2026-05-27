@@ -8,30 +8,16 @@ import { DataTable } from '../../components/tables/DataTable'
 import { SentimentBadge } from '../../components/ui/Badge'
 import { useCollection, useDocument } from '../../hooks/useFirestore'
 import { formatNumber, formatPercentage, formatDate, getMonthName } from '../../utils/formatters'
-import { getLastNMonths, aggregateBySource, calculateGrowthPercentage } from '../../utils/calculations'
+import {
+  getLastNMonths,
+  aggregateBySource,
+  calculateGrowthPercentage,
+  calculateChurnRate,
+  findApplicableTarget,
+  sumPackageTargets,
+} from '../../utils/calculations'
 
 const isFreePackage = (pkg) => (pkg?.name || '').trim().toUpperCase() === 'FREE'
-
-// Pick the applicable monthly target for the given (month, year) in priority order:
-// specific match → range match → 'all' default.
-function findApplicableTarget(monthlyTargets, month, year) {
-  if (!Array.isArray(monthlyTargets) || monthlyTargets.length === 0) return null
-  const specific = monthlyTargets.find(t =>
-    t?.periodType === 'specific' &&
-    Number(t.startMonth) === month &&
-    Number(t.startYear) === year
-  )
-  if (specific) return specific
-  const currKey = year * 12 + month
-  const range = monthlyTargets.find(t => {
-    if (t?.periodType !== 'range') return false
-    const startKey = Number(t.startYear) * 12 + Number(t.startMonth)
-    const endKey = Number(t.endYear) * 12 + Number(t.endMonth)
-    return currKey >= startKey && currKey <= endKey
-  })
-  if (range) return range
-  return monthlyTargets.find(t => t?.periodType === 'all') || null
-}
 
 export function Customers() {
   const { document: config, loading: configLoading } = useDocument('config', 'app')
@@ -80,6 +66,7 @@ export function Customers() {
     const months = getLastNMonths(parseInt(timeRange))
     let previousCustomers = 0
 
+    let cumulativeTarget = 0
     const monthlyData = months.map(month => {
       const monthAcq = acquisitions.filter(a => a.date?.startsWith(month.key))
       const monthChurn = churnRecords.filter(c => c.date?.startsWith(month.key))
@@ -89,11 +76,21 @@ export function Customers() {
       const customers = previousCustomers + acqCount - churnCount
       previousCustomers = Math.max(0, customers)
 
+      const monthTarget = findApplicableTarget(
+        config?.monthlyTargets || [],
+        month.month,
+        month.year
+      )
+      const acquisitionTarget = sumPackageTargets(monthTarget)
+      cumulativeTarget += acquisitionTarget
+
       return {
         month: month.label,
         total: previousCustomers,
         acquisitions: acqCount,
         churn: churnCount,
+        acquisitionTarget,
+        customerTarget: cumulativeTarget,
       }
     })
 
@@ -107,7 +104,7 @@ export function Customers() {
     const current = monthlyData[monthlyData.length - 1] || {}
     const previous = monthlyData[monthlyData.length - 2] || {}
     const growth = calculateGrowthPercentage(current.total, previous.total)
-    const churnRate = previous.total > 0 ? (current.churn / previous.total) * 100 : 0
+    const churnRate = calculateChurnRate(current.churn, previous.total, current.acquisitions)
 
     setKpis({
       total: current.total || 0,
@@ -115,7 +112,7 @@ export function Customers() {
       churnRate,
       netNew: (current.acquisitions || 0) - (current.churn || 0),
     })
-  }, [loading, acquisitions, churnRecords, timeRange])
+  }, [loading, acquisitions, churnRecords, timeRange, config])
 
   const leadsColumns = [
     { key: 'company', header: 'Company' },
